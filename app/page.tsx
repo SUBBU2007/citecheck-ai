@@ -1,14 +1,23 @@
-
 "use client";
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+//import ResultsDashboard from "@/app/components/ResultsDashboard";
+import ResultsDashboard from "@/app/components/ResultDashboard";
+
+import { verifyDocument } from "@/lib/api";
+import type { ClaimReport } from "@/types";
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [documentText, setDocumentText] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
+  const [showResults, setShowResults] = useState(false);
+  const [reports, setReports] = useState<ClaimReport[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   const acceptedFileTypes = [".pdf", ".txt", ".docx"];
   const maxFileSize = 10 * 1024 * 1024;
@@ -16,9 +25,7 @@ export default function Home() {
   function handleFile(file: File | undefined) {
     if (!file) return;
 
-    const extension = file.name
-      .slice(file.name.lastIndexOf("."))
-      .toLowerCase();
+    const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
 
     if (!acceptedFileTypes.includes(extension)) {
       setMessage("Please select a PDF, TXT, or DOCX file.");
@@ -34,15 +41,34 @@ export default function Home() {
     setMessage("");
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!selectedFile && !documentText.trim()) {
       setMessage("Upload a document or paste research text to continue.");
       return;
     }
 
-    setMessage(
-      "Input accepted. The document extraction and verification pipeline will be connected in the next steps."
-    );
+    setMessage("");
+    setIsLoading(true);
+
+    try {
+      const response = await verifyDocument(
+        selectedFile
+          ? { kind: "file", file: selectedFile }
+          : { kind: "text", text: documentText },
+      );
+
+      setReports(response.reports);
+      setWarnings(response.warnings);
+      setShowResults(true);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Verification failed. Please try again.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   function clearInput() {
@@ -53,6 +79,46 @@ export default function Home() {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  }
+
+  function handleBackToDocument() {
+    setShowResults(false);
+  }
+
+  if (showResults) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mx-auto mb-6 flex w-full max-w-6xl flex-wrap items-center justify-between gap-4">
+          <Link className="brand" href="/" aria-label="CiteCheck AI home">
+            <span className="brand-mark">C</span>
+            <span>
+              CiteCheck<span className="brand-accent"> AI</span>
+            </span>
+          </Link>
+
+          <button
+            type="button"
+            onClick={handleBackToDocument}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            ← Back to document
+          </button>
+        </div>
+
+        {warnings.length > 0 && (
+          <div className="mx-auto mb-6 w-full max-w-6xl rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <strong>Warnings</strong>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {warnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <ResultsDashboard reports={reports} />
+      </main>
+    );
   }
 
   return (
@@ -91,9 +157,9 @@ export default function Home() {
           </h1>
 
           <p className="hero-description">
-            Verify research citations against their actual sources.
-            Find unsupported claims, conflicting evidence, and references
-            that need a closer look.
+            Verify research citations against their actual sources. Find
+            unsupported claims, conflicting evidence, and references that need a
+            closer look.
           </p>
 
           <div className="hero-points">
@@ -112,7 +178,10 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="hero-visual" aria-label="Illustration of citation verification">
+        <div
+          className="hero-visual"
+          aria-label="Illustration of citation verification"
+        >
           <div className="visual-orbit orbit-one" />
           <div className="visual-orbit orbit-two" />
 
@@ -169,9 +238,7 @@ export default function Home() {
           <div>
             <span className="section-kicker">START CHECKING</span>
             <h2>Put your citations to the test.</h2>
-            <p>
-              Upload a research document or paste its text to get started.
-            </p>
+            <p>Upload a research document or paste its text to get started.</p>
           </div>
           <div className="file-limit">PDF · TXT · DOCX · Up to 10 MB</div>
         </div>
@@ -198,16 +265,14 @@ export default function Home() {
               onChange={(event) => handleFile(event.target.files?.[0])}
             />
 
-            <span className="upload-icon">
-              {selectedFile ? "✓" : "↑"}
-            </span>
+            <span className="upload-icon">{selectedFile ? "✓" : "↑"}</span>
 
             {selectedFile ? (
               <>
                 <strong>{selectedFile.name}</strong>
                 <span>
-                  {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB ·
-                  Selected successfully
+                  {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB · Selected
+                  successfully
                 </span>
               </>
             ) : (
@@ -242,11 +307,7 @@ export default function Home() {
 
           <div className="input-footer">
             <span>{documentText.length.toLocaleString()} characters</span>
-            <button
-              className="clear-button"
-              type="button"
-              onClick={clearInput}
-            >
+            <button className="clear-button" type="button" onClick={clearInput}>
               Clear input
             </button>
           </div>
@@ -266,8 +327,9 @@ export default function Home() {
               className="primary-button"
               type="button"
               onClick={handleSubmit}
+              disabled={isLoading}
             >
-              Start verification <span>→</span>
+              {isLoading ? "Verifying citations..." : "Verify citations"}
             </button>
           </div>
         </div>
@@ -288,8 +350,8 @@ export default function Home() {
             <div className="step-icon">⌕</div>
             <h3>Extract claims</h3>
             <p>
-              Identify research claims and link them to the citations
-              provided in the document.
+              Identify research claims and link them to the citations provided
+              in the document.
             </p>
           </article>
 
@@ -298,8 +360,8 @@ export default function Home() {
             <div className="step-icon">↗</div>
             <h3>Retrieve sources</h3>
             <p>
-              Find cited papers and collect accessible source evidence
-              with traceable references.
+              Find cited papers and collect accessible source evidence with
+              traceable references.
             </p>
           </article>
 
@@ -308,8 +370,8 @@ export default function Home() {
             <div className="step-icon">◎</div>
             <h3>Verify evidence</h3>
             <p>
-              Compare each claim with the retrieved passages and explain
-              what the evidence does and does not establish.
+              Compare each claim with the retrieved passages and explain what
+              the evidence does and does not establish.
             </p>
           </article>
         </div>
